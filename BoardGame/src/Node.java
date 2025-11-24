@@ -1,4 +1,3 @@
-import javax.swing.*;
 import java.awt.*;
 
 // Node class representing each box on the board

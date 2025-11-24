@@ -1,4 +1,3 @@
-import javax.swing.*;
 import java.awt.*;
 // Board class managing the game board
 class Board {
