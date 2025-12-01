@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.PriorityQueue;
 
 // Player class representing each player in the game
 class Player {
@@ -333,6 +334,148 @@ class Node {
     }
 }
 
+// NEW: Dijkstra Algorithm Implementation
+class DijkstraAlgorithm {
+    private Board board;
+    private boolean movingForward;
+
+    public DijkstraAlgorithm(Board board) {
+        this.board = board;
+    }
+
+    // Node for Dijkstra's algorithm
+    private static class DijkstraNode implements Comparable<DijkstraNode> {
+        int position;
+        int stepsUsed;  // Changed from distance to stepsUsed for clarity
+        List<Integer> path;
+
+        public DijkstraNode(int position, int stepsUsed, List<Integer> path) {
+            this.position = position;
+            this.stepsUsed = stepsUsed;
+            this.path = new ArrayList<>(path);
+        }
+
+        @Override
+        public int compareTo(DijkstraNode other) {
+            // Prioritize fewer steps used
+            if (this.stepsUsed != other.stepsUsed) {
+                return Integer.compare(this.stepsUsed, other.stepsUsed);
+            }
+            // If same steps, prioritize higher position
+            return Integer.compare(other.position, this.position);
+        }
+    }
+
+    public List<Integer> findShortestPathWithLadders(int start, int diceRoll) {
+        PriorityQueue<DijkstraNode> pq = new PriorityQueue<>();
+        Map<Integer, Integer> bestSteps = new HashMap<>();
+        Map<Integer, List<Integer>> bestPaths = new HashMap<>();
+
+        // Initialize with starting position
+        List<Integer> initialPath = new ArrayList<>();
+        initialPath.add(start);
+        pq.offer(new DijkstraNode(start, 0, initialPath));
+        bestSteps.put(start, 0);
+        bestPaths.put(start, initialPath);
+
+        List<Integer> bestFinalPath = initialPath;
+        int bestFinalPosition = start;
+        int bestFinalSteps = Integer.MAX_VALUE;
+
+        while (!pq.isEmpty()) {
+            DijkstraNode current = pq.poll();
+
+            // Skip if we've already found a better path to this position
+            if (bestSteps.containsKey(current.position) &&
+                    bestSteps.get(current.position) < current.stepsUsed) {
+                continue;
+            }
+
+            // If we've used all our dice roll steps, this is a potential final position
+            if (current.stepsUsed == diceRoll) {
+                if (current.position > bestFinalPosition ||
+                        (current.position == bestFinalPosition && current.stepsUsed < bestFinalSteps)) {
+                    bestFinalPosition = current.position;
+                    bestFinalPath = current.path;
+                    bestFinalSteps = current.stepsUsed;
+                }
+                continue; // Don't explore further from this node
+            }
+
+            // If we haven't used all steps yet, explore neighbors
+            if (current.stepsUsed < diceRoll) {
+                // Option 1: Move to next position (costs 1 step)
+                int nextPos = movingForward ? current.position + 1 : current.position - 1;
+
+                // Check bounds
+                if (nextPos >= 1 && nextPos <= board.getTotalNodes()) {
+                    int newSteps = current.stepsUsed + 1;
+
+                    // Only proceed if this is a better or first path to this position
+                    if (!bestSteps.containsKey(nextPos) || newSteps <= bestSteps.get(nextPos)) {
+                        List<Integer> newPath = new ArrayList<>(current.path);
+                        newPath.add(nextPos);
+
+                        bestSteps.put(nextPos, newSteps);
+                        bestPaths.put(nextPos, newPath);
+                        pq.offer(new DijkstraNode(nextPos, newSteps, newPath));
+
+                        // Option 2: If this position has a ladder, also try using it (costs 1 step)
+                        if (board.isLadderBottom(nextPos)) {
+                            int ladderTop = board.checkLadder(nextPos);
+                            int ladderSteps = newSteps + 1; // Using ladder counts as 1 additional step
+
+                            if (ladderSteps <= diceRoll) {
+                                if (!bestSteps.containsKey(ladderTop) || ladderSteps <= bestSteps.get(ladderTop)) {
+                                    List<Integer> ladderPath = new ArrayList<>(newPath);
+                                    ladderPath.add(ladderTop);
+
+                                    bestSteps.put(ladderTop, ladderSteps);
+                                    bestPaths.put(ladderTop, ladderPath);
+                                    pq.offer(new DijkstraNode(ladderTop, ladderSteps, ladderPath));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return bestFinalPath;
+    }
+
+    public void displayShortestPath(int start, int diceRoll, JLabel statusLabel, Player player) {
+        List<Integer> path = findShortestPathWithLadders(start, diceRoll);
+
+        if (path != null && path.size() > 1) {
+            StringBuilder pathInfo = new StringBuilder();
+            pathInfo.append("<html><center><b style='color: rgb(255, 215, 0);'>DIJKSTRA ACTIVATED!</b><br>");
+            pathInfo.append("<font color='white'>").append(player.getName()).append(" from prime ").append(start).append("<br>");
+            pathInfo.append("Roll: ").append(diceRoll).append(" | Path: ");
+
+            int laddersUsed = 0;
+            for (int i = 0; i < path.size(); i++) {
+                if (i > 0) pathInfo.append(" → ");
+                int pos = path.get(i);
+                pathInfo.append(pos);
+
+                // Check if this was a ladder jump
+                if (i > 0 && board.isLadderBottom(path.get(i-1)) &&
+                        board.checkLadder(path.get(i-1)) == pos) {
+                    pathInfo.append("⬆");
+                    laddersUsed++;
+                }
+            }
+
+            pathInfo.append("<br>Ladders used: ").append(laddersUsed);
+            pathInfo.append(" | Final: ").append(path.get(path.size()-1));
+            pathInfo.append("</font></center></html>");
+
+            statusLabel.setText(pathInfo.toString());
+        }
+    }
+}
+
 // Board class managing the game board
 class Board {
     private Node[][] nodes;
@@ -341,11 +484,13 @@ class Board {
     private static final int TOTAL_NODES = ROWS * COLS;
     private Map<Integer, Integer> ladders;
     private Random random;
+    private DijkstraAlgorithm dijkstra; // NEW: Dijkstra algorithm instance
 
     public Board() {
         nodes = new Node[ROWS][COLS];
         ladders = new HashMap<>();
         random = new Random();
+        dijkstra = new DijkstraAlgorithm(this); // NEW: Initialize Dijkstra
         initializeBoard();
         generateRandomLadders();
         generateRandomPoints(); // NEW: Generate random points
@@ -471,6 +616,11 @@ class Board {
         return true;
     }
 
+    // NEW: Get Dijkstra algorithm instance
+    public DijkstraAlgorithm getDijkstra() {
+        return dijkstra;
+    }
+
     public void draw(Graphics g) {
         for (int row = 0; row < ROWS; row++) {
             for (int col = 0; col < COLS; col++) {
@@ -576,115 +726,125 @@ class GameManager {
         if (gameOver) return;
 
         Player currentPlayer = players[currentPlayerIndex];
-        int startPosition = currentPlayer.getCurrentPosition(); // Store starting position
+        int startPosition = currentPlayer.getCurrentPosition();
         int roll = dice.roll();
-        int stepsRemaining = roll;
-        int newPosition;
+        boolean movingForward = dice.isGreen();
 
-        if (dice.isGreen()) {
-            newPosition = startPosition + roll;
-        } else {
-            newPosition = startPosition - roll;
+        // Check if starting from prime number - enables Dijkstra
+        boolean canUseLadders = board.isPrime(startPosition);
+        List<Integer> optimalPath = null;
+
+        if (canUseLadders && movingForward) {
+            // Use Dijkstra to find optimal path with ladders
+            optimalPath = board.getDijkstra().findShortestPathWithLadders(startPosition, roll);
+
+            // Display the path found
+            board.getDijkstra().displayShortestPath(startPosition, roll, statusLabel, currentPlayer);
         }
 
-        if (newPosition < 1) {
-            newPosition = 1;
-        }
-
-        if (newPosition >= board.getTotalNodes()) {
-            newPosition = board.getTotalNodes();
-            gameOver = true;
-        }
-
-        final int finalPosition = newPosition;
-        final int initialSteps = stepsRemaining;
+        final List<Integer> finalPath = optimalPath;
 
         if (onComplete != null) {
             onComplete.run();
         }
 
-        Timer delayTimer = new Timer(600, new ActionListener() {
+        Timer delayTimer = new Timer(800, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 ((Timer)e.getSource()).stop();
-                currentPlayer.setTargetPosition(finalPosition);
 
-                // NEW: Track if we can use ladder on this turn
-                final boolean canUseLadderThisTurn = board.isPrime(startPosition);
-                final int[] stepsUsed = {0};
-
-                movementTimer = new Timer(300, new ActionListener() {
-                    @Override
-                    public void actionPerformed(ActionEvent e) {
-                        boolean movementComplete = currentPlayer.moveToNextBox();
-                        stepsUsed[0]++;
-
-                        if (movementComplete) {
-                            movementTimer.stop();
-                            int landedPosition = currentPlayer.getCurrentPosition();
-
-                            // NEW: Check ladder conditions
-                            if (board.isLadderBottom(landedPosition) && canUseLadderThisTurn && stepsUsed[0] < initialSteps) {
-                                int ladderTop = board.checkLadder(landedPosition);
-
-                                if (statusLabel != null) {
-                                    statusLabel.setText("<html><center>LADDER ACTIVATED!<br>" +
-                                            currentPlayer.getName() + " started from prime " + startPosition + "<br>" +
-                                            "Climbing from " + landedPosition + " to " + ladderTop +
-                                            " (Step " + (stepsUsed[0] + 1) + " of " + initialSteps + ")</center></html>");
-                                }
-
-                                currentPlayer.setLadderTarget(ladderTop);
-
-                                Timer ladderTimer = new Timer(20, new ActionListener() {
-                                    @Override
-                                    public void actionPerformed(ActionEvent e) {
-                                        currentPlayer.updateAnimation(0.05);
-                                        if (!currentPlayer.isAnimating()) {
-                                            ((Timer)e.getSource()).stop();
-
-                                            // Continue movement after ladder if steps remain
-                                            int remainingSteps = initialSteps - stepsUsed[0] - 1;
-                                            if (remainingSteps > 0) {
-                                                int nextTarget;
-                                                if (dice.isGreen()) {
-                                                    nextTarget = currentPlayer.getCurrentPosition() + remainingSteps;
-                                                } else {
-                                                    nextTarget = currentPlayer.getCurrentPosition() - remainingSteps;
-                                                }
-
-                                                if (nextTarget < 1) nextTarget = 1;
-                                                if (nextTarget >= board.getTotalNodes()) {
-                                                    nextTarget = board.getTotalNodes();
-                                                    gameOver = true;
-                                                }
-
-                                                currentPlayer.setTargetPosition(nextTarget);
-                                                movementTimer.start();
-                                            } else {
-                                                finishTurn(onComplete);
-                                            }
-                                        }
-                                    }
-                                });
-                                ladderTimer.start();
-                            } else {
-                                if (board.isLadderBottom(landedPosition) && !canUseLadderThisTurn) {
-                                    if (statusLabel != null) {
-                                        statusLabel.setText("<html><center>Ladder at " + landedPosition + "<br>" +
-                                                "Cannot use: started from " + startPosition + " (not prime)</center></html>");
-                                    }
-                                }
-                                finishTurn(onComplete);
-                            }
-                        }
+                if (canUseLadders && finalPath != null && finalPath.size() > 1) {
+                    // Follow the Dijkstra path
+                    followDijkstraPath(currentPlayer, finalPath, 0, onComplete);
+                } else {
+                    // Normal movement without Dijkstra
+                    int newPosition;
+                    if (movingForward) {
+                        newPosition = startPosition + roll;
+                    } else {
+                        newPosition = startPosition - roll;
                     }
-                });
-                movementTimer.start();
+
+                    if (newPosition < 1) newPosition = 1;
+                    if (newPosition >= board.getTotalNodes()) {
+                        newPosition = board.getTotalNodes();
+                        gameOver = true;
+                    }
+
+                    currentPlayer.setTargetPosition(newPosition);
+                    handleNormalMovement(currentPlayer, startPosition, roll, onComplete);
+                }
             }
         });
         delayTimer.setRepeats(false);
         delayTimer.start();
+    }
+
+
+    // NEW: Method to follow Dijkstra path step by step
+    private void followDijkstraPath(Player player, List<Integer> path, int currentIndex, Runnable onComplete) {
+        if (currentIndex >= path.size() - 1) {
+            finishTurn(onComplete);
+            return;
+        }
+
+        int currentPos = path.get(currentIndex);
+        int nextPos = path.get(currentIndex + 1);
+
+        // Check if this is a ladder jump
+        boolean isLadder = board.isLadderBottom(currentPos) && board.checkLadder(currentPos) == nextPos;
+
+        if (isLadder) {
+            // Animate ladder climb
+            player.setLadderTarget(nextPos);
+            Timer ladderTimer = new Timer(20, new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    player.updateAnimation(0.05);
+                    if (!player.isAnimating()) {
+                        ((Timer)e.getSource()).stop();
+                        followDijkstraPath(player, path, currentIndex + 1, onComplete);
+                    }
+                }
+            });
+            ladderTimer.start();
+        } else {
+            // Normal movement
+            player.setTargetPosition(nextPos);
+            Timer moveTimer = new Timer(300, new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    boolean complete = player.moveToNextBox();
+                    if (complete) {
+                        ((Timer)e.getSource()).stop();
+                        followDijkstraPath(player, path, currentIndex + 1, onComplete);
+                    }
+                }
+            });
+            moveTimer.start();
+        }
+    }
+
+    // NEW: Extracted method for normal movement handling
+    private void handleNormalMovement(Player currentPlayer, int startPosition, int totalSteps,
+                                      Runnable onComplete) {
+        final int[] stepsUsed = {0};
+
+        movementTimer = new Timer(300, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                boolean movementComplete = currentPlayer.moveToNextBox();
+                stepsUsed[0]++;
+
+                if (movementComplete) {
+                    movementTimer.stop();
+
+                    // Normal movement complete - no ladder checking when Dijkstra is not active
+                    finishTurn(onComplete);
+                }
+            }
+        });
+        movementTimer.start();
     }
 
     private void finishTurn(Runnable onComplete) {
@@ -816,7 +976,7 @@ class BoardPanel extends JPanel {
 public class BoardGame {
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            JFrame frame = new JFrame("Board Game - Prime Ladder Edition");
+            JFrame frame = new JFrame("Board Game - Prime Ladder Edition with Dijkstra");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
             frame.setLayout(new BorderLayout());
 
@@ -846,8 +1006,8 @@ public class BoardGame {
             titleLabel.setForeground(Color.WHITE);
             titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-            // NEW: Add rules label
-            JLabel rulesLabel = new JLabel("<html><center><b>Ladder Rule:</b><br>Start from PRIME box<br>to use ladders!</center></html>");
+            // NEW: Updated rules label to include Dijkstra
+            JLabel rulesLabel = new JLabel("<html><center><b>Ladder Rule:</b><br>Start from PRIME box<br>to use ladders!<br><br><b>Dijkstra Feature:</b><br>From prime boxes,<br>find optimal path<br>using ladders!</center></html>");
             rulesLabel.setFont(new Font("Arial", Font.PLAIN, 12));
             rulesLabel.setForeground(new Color(173, 216, 230));
             rulesLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
